@@ -1,100 +1,74 @@
-# Arquitetura de Software — Kaggle Chatbot MVP
+Visão em Camadas
 
-> Este documento descreve a arquitetura lógica, a organização em camadas e o fluxo de dados do MVP, além de instruções detalhadas para desenhar o diagrama no **draw.io** (diagrams.net) e exportar para o repositório.
-
-## 1. Objetivos de Arquitetura
-
-- **Separação de responsabilidades**: UI (Streamlit) isolada da lógica de negócio (`core/`) e dos artefatos (`data/`).
-- **Simplicidade (MVP)**: poucos componentes, acoplamento baixo e convenções claras.
-- **Reprodutibilidade**: pipelines de ML encapsulados; execução determinística.
-- **Evolução**: fácil trocar o tema Kaggle, o modelo e incluir IA generativa.
-- **Governança**: espaço próprio para configs (`configs/`) e documentação (`docs/`).
-
-## 2. Visão em Camadas
-
-```
 Usuário (navegador)
    ↓
-[ app/ ]  → Streamlit UI
+app/  → interface com Streamlit
    ↓
-[ core/ ]
-   ├─ data/       → leitura/validação de CSV
-   ├─ features/   → pipelines de preprocessamento
-   ├─ models/     → treino, avaliação, predição
-   ├─ explain/    → coeficientes/importâncias
-   └─ chatbot/    → regras de resposta
+core/ 
+   ├─ data/       → leitura/validação
+   ├─ features/   → pipelines
+   ├─ models/     → treino/predição
+   ├─ explain/    → explicações
+   └─ chatbot/    → respostas FAQ
    ↓
-[ data/ ]
+data/
    ├─ raw/        → dados brutos
    ├─ processed/  → dados tratados
-   └─ models/     → artefatos .pkl
-```
+   └─ models/     → modelos salvos
 
-## 3. Componentes e Responsabilidades
+Componentes e Responsabilidades
 
-### app/
-- Camada de apresentação (UI com Streamlit).
-- Upload de CSV, escolha de tarefa (classificação ou regressão).
-- Exibição de métricas, importâncias e respostas do chatbot.
+app/
 
-### core/data/
-- Funções de I/O para CSVs.
-- Validação de schema (colunas obrigatórias, tipos).
+UI em Streamlit → upload de dados, seleção de tarefa (classificação ou regressão), exibição de resultados.
 
-### core/features/
-- Pipelines de preprocessamento: imputação, one-hot, escala.
+core/data/
 
-### core/models/
-- Treinamento de modelos (LogisticRegression, LinearRegression).
-- Avaliação: métricas de classificação (acurácia, f1, precisão, recall) e regressão (RMSE).
+Lê e valida os CSVs.
 
-### core/explain/
-- Extração de coeficientes e odds ratios.
-- Interpretação simples de variáveis mais relevantes.
+core/features/
 
-### core/chatbot/
-- Regras para perguntas frequentes (FAQ).
-- Respostas sobre métricas, variáveis e pipeline.
+Pipelines de transformação → imputação de valores nulos, normalização, codificação de categorias.
 
-### data/
-- `raw/`: datasets brutos (não alterar).
-- `processed/`: datasets tratados (quando necessário).
-- `models/`: modelos salvos (.pkl).
+core/models/
 
-### configs/
-- Arquivos de configuração e logging.
+Treina modelos de ML.
 
-### docs/
-- Documentação integrada: PMC, arquitetura, dados, LGPD, testes, deploy.
+Para classificação: métricas como acurácia, f1, recall.
 
-## 4. Fluxo de Execução
+Para regressão: métricas como RMSE.
 
-1. Usuário acessa aplicação pelo navegador.
-2. Faz upload do dataset (ex.: Titanic `train.csv`).
-3. A camada `app/` passa os dados para `core/data/` → validação.
-4. `core/features/` monta pipeline de preprocessamento.
-5. `core/models/` treina e avalia modelo escolhido.
-6. `core/explain/` gera coeficientes/importâncias.
-7. `core/chatbot/` interpreta perguntas e gera respostas.
-8. Resultados (métricas, gráficos, texto) são exibidos em `app/`.
-9. Artefatos (datasets tratados, modelos) são salvos em `data/`.
+core/explain/
 
-## 5. Como desenhar no draw.io
+Explica a importância das features no modelo.
 
-1. Acesse [draw.io](https://app.diagrams.net/).
-2. Crie caixas para cada camada:
-   - **Usuário (Navegador)** no topo.
-   - **app/** logo abaixo, identificado como “Streamlit UI”.
-   - **core/** ao centro, subdividido em data, features, models, explain, chatbot.
-   - **data/** na base, com subpastas raw, processed, models.
-   - **configs/** e **docs/** ao lado, conectados ao core e app como apoio.
-3. Conecte com setas verticais (usuário → app → core → data).
-4. Adicione rótulos nas setas, por exemplo: “upload CSV”, “pré-processamento”, “treino/predição”.
-5. Salve o diagrama em formato `.drawio` e exporte também como `.png`.
-6. No repositório, coloque em `docs/images/architecture.png` e referencie neste arquivo com:
+core/chatbot/
 
-![Arquitetura](./images/architecture.png)
+Regras para responder FAQs (ex.: "qual a métrica usada?", "qual variável mais importante?").
 
----
+data/
 
-Essa arquitetura é suficiente para um MVP educacional, mas já prepara terreno para futuras extensões (ex.: inclusão de IA generativa, novos modelos ou integração com APIs externas).
+Guarda os arquivos originais, os tratados e os modelos já treinados.
+
+Fluxo de Execução
+
+Usuário acessa a aplicação.
+
+Faz upload do dataset  (data.csv).
+
+data/ valida o schema (colunas obrigatórias).
+
+features/ processa os dados.
+
+models/ treina e avalia.
+
+explain/ mostra variáveis relevantes.
+
+chatbot/ responde perguntas.
+
+app/ mostra métricas e gráficos.
+
+![Diagrama da Arquitetura](./Architeture.png.jpg)
+
+
+Artefatos tratados e modelos ficam salvos em data/.
