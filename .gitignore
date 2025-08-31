@@ -1,0 +1,24 @@
+# Ignorar bancos de dados
+*.db
+*.sqlite
+
+# Pastas de dados e modelos, mas mantendo os arquivos .sql
+data/*.db
+data/*.sqlite
+model/*.db
+model/*.sqlite
+
+# Ignorar arquivos temporários / cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Ambiente virtual
+.venv/
+venv/
+
+# Configurações locais
+.env
+.DS_Store
