@@ -1,6 +1,7 @@
-DROP TABLE IF EXISTS sor_sales;
+-- Criação da tabela SOR (Sales Order Raw)
+DROP TABLE IF EXISTS SOR;
 
-CREATE TABLE sor_sales (
+CREATE TABLE SOR (
     InvoiceNo TEXT,
     StockCode TEXT,
     Description TEXT,
@@ -8,7 +9,5 @@ CREATE TABLE sor_sales (
     InvoiceDate TEXT,
     UnitPrice REAL,
     CustomerID INTEGER,
-    Country TEXT,
-    TotalPrice REAL,
-    PRIMARY KEY (InvoiceNo, StockCode)
+    Country TEXT
 );
