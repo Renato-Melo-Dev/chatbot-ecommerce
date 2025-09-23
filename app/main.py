@@ -3,9 +3,13 @@ import sys, os, pickle
 import streamlit as st
 import pandas as pd
 
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.pipeline import run_training_pipeline, run_prediction_pipeline
+from core.pipeline import run_training_pipeline, run_prediction_pipeline, load_data
 from core.chatbot.rules import answer_from_metrics
 
 # Diretório e arquivo do modelo
@@ -19,7 +23,7 @@ st.set_page_config(page_title="📊 E-commerce ML - Chat", layout="wide")
 st.title("📊 Dashboard E-commerce com Treino / Predição / Chat")
 
 # Estado da sessão
-for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "importances", "chat_messages"]:
+for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "chat_messages"]:
     if key not in st.session_state:
         st.session_state[key] = False if key.endswith("trained") or key.endswith("made") else None
 
@@ -45,7 +49,7 @@ if uploaded_file is not None:
 
     # Resetar sessão
     if reset_btn:
-        for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "importances"]:
+        for key in ["model_trained", "predictions_made", "prediction_df", "metrics"]:
             st.session_state[key] = False if key.endswith("trained") or key.endswith("made") else None
         st.session_state["chat_messages"] = [
             {"role": "assistant", "content": "Oi! Eu sou o bot do E-commerce. Envie seus dados para começar."}
@@ -55,12 +59,22 @@ if uploaded_file is not None:
     # Treinar modelo
     if train_btn:
         with st.spinner("Treinando modelo..."):
-            metrics, importances = run_training_pipeline(df, test_size=0.2, model_path=MODEL_PATH)
+            metrics, _ = run_training_pipeline(df, test_size=0.2, model_path=MODEL_PATH)
             st.session_state.model_trained = True
             st.session_state.predictions_made = False
             st.session_state.metrics = metrics
-            st.session_state.importances = importances
+
         st.success("✅ Modelo treinado e salvo!")
+
+        # --- Estatísticas do dataset de treino ---
+        df_spec = load_data("spec_sales")
+        st.subheader("📈 Estatísticas do Dataset de Treino")
+        st.write(f"Número de linhas: {df_spec.shape[0]}")
+        st.write(f"Número de colunas: {df_spec.shape[1]}")
+        st.write(f"Clientes únicos: {df_spec['CustomerID'].nunique()}")
+        st.write(f"Produtos únicos: {df_spec['StockCode'].nunique()}")
+        st.write(f"Países únicos: {df_spec['Country'].nunique()}")
+        st.write(df_spec.describe())
 
     # Fazer predições
     if predict_btn:
@@ -74,7 +88,6 @@ if uploaded_file is not None:
                 st.session_state.prediction_df = df_pred
                 st.session_state.predictions_made = True
             st.success("✅ Predições realizadas!")
-
 
 # === Layout das abas ===
 tab_train, tab_predict, tab_chat = st.tabs(["📊 Resultados do Treino", "🚀 Predições", "💬 Chat"])
@@ -94,40 +107,15 @@ with tab_train:
         with col3:
             st.metric("MAE", f"{metrics.get('mae', 'N/A'):.4f}" if metrics.get('mae') else "N/A")
 
-        st.markdown("---")
-        # Importâncias
-        with st.expander("🔎 Importâncias das Features"):
-            if st.session_state.importances is not None:
-                df_imp = st.session_state.importances.copy()
-                # Calcular % relativo e arredondar
-                total_abs = df_imp["Coeficiente"].abs().sum()
-                df_imp["Importância (%)"] = (df_imp["Coeficiente"].abs() / total_abs * 100).round(1)
-
-                # Usar Description se existir, senão primeira coluna
-                feature_name_col = "Description" if "Description" in df_imp.columns else df_imp.columns[0]
-
-                # Mostrar top 5
-                top_features = df_imp.sort_values(by="Importância (%)", ascending=False).head(5)
-                st.dataframe(top_features[[feature_name_col, "Importância (%)"]], use_container_width=True)
-            else:
-                st.info("Importâncias das features não estão disponíveis.")
-
-
 with tab_predict:
     st.markdown("<h2 style='color:white;'>🚀 Predições</h2>", unsafe_allow_html=True)
     if not st.session_state.predictions_made:
         st.info("Faça predições usando o modelo treinado.")
     else:
-        # Copiar dataframe para exibição
         df_to_show = st.session_state.prediction_df.copy()
-        # Arredondar Predito
         df_to_show["Predito"] = df_to_show["Predito"].round(2)
-
-        # Reorganizar colunas
         cols_order = ["CustomerID", "Country", "StockCode", "Description", "Quantity", "UnitPrice", "Predito"]
         st.dataframe(df_to_show[cols_order], use_container_width=True)
-
-        # CSV para download
         csv_data = convert_df_to_csv(df_to_show[cols_order])
         st.download_button(
             label="⬇️ Baixar Previsões em CSV",
@@ -135,7 +123,6 @@ with tab_predict:
             file_name="predictions.csv",
             mime="text/csv",
         )
-
 
 with tab_chat:
     st.markdown("<h2 style='color:white;'>💬 Converse com o Modelo</h2>", unsafe_allow_html=True)
@@ -147,7 +134,7 @@ with tab_chat:
         response = answer_from_metrics(
             question=prompt,
             metrics_df_or_dict=st.session_state.metrics,
-            importances_df=st.session_state.importances,
+            importances_df=None,  # importâncias removidas
             model_pipe=None
         )
         st.session_state.chat_messages.append({"role": "assistant", "content": response})

@@ -1,57 +1,37 @@
 # core/chatbot/rules.py
-import pandas as pd
+def answer_from_metrics(question: str, task: str = "regressão", metrics_df_or_dict=None, importances_df=None, df=None, model_pipe=None):
+    q = (question or "").lower()
 
-def answer_from_metrics(question, metrics_df_or_dict=None, importances_df=None, model_pipe=None):
-    """
-    Responde perguntas sobre métricas, importâncias e previsões.
-    """
-    question = question.lower().strip()
+    # 1️⃣ Pergunta sobre métricas
+    if "rmse" in q or "r²" in q or "r2" in q or "mae" in q or "métric" in q:
+        if metrics_df_or_dict:
+            metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics_df_or_dict.items()])
+            return f"Métricas da tarefa {task}: {metrics_str}"
+        return "⚠️ Métricas não estão disponíveis."
 
-    # 1️⃣ Pergunta sobre RMSE ou métricas
-    if "rmse" in question:
-        if metrics_df_or_dict is not None:
-            rmse = metrics_df_or_dict.get("rmse") if isinstance(metrics_df_or_dict, dict) else None
-            if rmse is not None:
-                return f"✅ O RMSE do modelo é {rmse:.4f}."
-            else:
-                return "⚠️ Não encontrei RMSE nas métricas."
-        return "⚠️ Métricas do modelo não estão disponíveis."
+    # 2️⃣ Pergunta sobre features
+    if "feature" in q or "variável" in q:
+        features = ["CustomerID", "Country", "StockCode", "Quantity", "UnitPrice", "Month", "Year"]
+        return f"🔧 As features usadas pelo modelo são: {', '.join(features)}. Importâncias detalhadas não estão disponíveis."
 
-    # 2️⃣ Pergunta sobre top features
-    if "features mais importantes" in question or "top features" in question:
-        if importances_df is not None and not importances_df.empty:
-            coef_col = None
-            for col in importances_df.columns:
-                if "coef" in col.lower() or "importance" in col.lower():
-                    coef_col = col
-                    break
+    # 3️⃣ Pergunta sobre pipeline
+    if "pipeline" in q or "treinado" in q or "como foi treinado" in q:
+        return "O pipeline faz imputação de valores faltantes, criação de Month/Year, one-hot encoding de variáveis categóricas e treina RandomForestRegressor."
 
-            if coef_col is None:
-                return "⚠️ Coluna de coeficientes não encontrada no DataFrame de importâncias."
-
-            # Calcular % relativo e ordenar
-            df_imp = importances_df.copy()
-            total_abs = df_imp[coef_col].abs().sum()
-            df_imp["Importância (%)"] = (df_imp[coef_col].abs() / total_abs * 100).round(1)
-
-            # Usar Description se existir, senão usa a primeira coluna
-            if "Description" in df_imp.columns:
-                feature_name_col = "Description"
-            else:
-                feature_name_col = df_imp.columns[0]
-
-            top_features = df_imp.sort_values(by="Importância (%)", ascending=False).head(5)
-            features_list = ", ".join(top_features[feature_name_col].astype(str).tolist())
-            return f"🔎 As 5 features mais importantes são: {features_list}."
-        return "⚠️ Importâncias das features não estão disponíveis."
-
-    # 3️⃣ Pergunta sobre previsão
-    if "previsão" in question or "quanto seria" in question:
+    # 4️⃣ Pergunta sobre previsão
+    if "previsão" in q or "quanto seria" in q:
         if model_pipe is not None:
-            return ("Para gerar uma previsão, forneça CustomerID e Country "
-                    "no formato: CustomerID=xxx, Country=YYY")
-        return "⚠️ Modelo não está carregado para fazer previsões."
+            return ("Para gerar uma previsão, forneça CustomerID, Country, StockCode, Quantity e UnitPrice "
+                    "no formato: CustomerID=xxx, Country=YYY, StockCode=ZZZ, Quantity=N, UnitPrice=P")
+        return "⚠️ Modelo não carregado para fazer previsões."
+
+    # 5️⃣ Pergunta sobre número de clientes
+    if "cliente" in q or "quantos clientes" in q:
+        if df is not None and "CustomerID" in df.columns:
+            n_clients = df["CustomerID"].nunique()
+            return f"👥 Existem {n_clients} clientes únicos no dataset."
+        return "⚠️ Dataset não disponível para contar clientes."
 
     # Pergunta não reconhecida
     return ("❓ Desculpe, não entendi a pergunta. "
-            "Você pode perguntar sobre RMSE, features ou previsões de TotalPrice.")
+            "Você pode perguntar sobre métricas, features, pipeline, previsões ou número de clientes.")
