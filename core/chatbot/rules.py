@@ -31,12 +31,19 @@ def answer_from_metrics(question, metrics_df_or_dict=None, importances_df=None, 
             if coef_col is None:
                 return "⚠️ Coluna de coeficientes não encontrada no DataFrame de importâncias."
 
+            # Calcular porcentagem relativa se não existir
+            if "Relativa (%)" not in importances_df.columns:
+                importances_df["Relativa (%)"] = (importances_df[coef_col].abs() / importances_df[coef_col].abs().sum()) * 100
+
             top_features = importances_df.copy()
             top_features["abs_coef"] = top_features[coef_col].abs()
             top_features = top_features.sort_values(by="abs_coef", ascending=False).head(5)
-            features_list = ", ".join(top_features.iloc[:, 0].tolist())  # Assume que a primeira coluna é o nome da feature
+
+          # Mostrar Feature + %
+            features_list = ", ".join([f"{f} ({p:.1f}%)" 
+                                    for f, p in zip(top_features.iloc[:, 0], top_features["Relativa (%)"])])
             return f"🔎 As 5 features mais importantes são: {features_list}."
-        return "⚠️ Importâncias das features não estão disponíveis."
+
 
     # 3️⃣ Pergunta sobre previsão de cliente/país
     if "previsão" in question or "quanto seria" in question:

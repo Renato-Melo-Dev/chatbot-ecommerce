@@ -41,6 +41,16 @@ if uploaded_file is not None:
         st.header("Ações")
         train_btn = st.button("🚀 Treinar modelo")
         predict_btn = st.button("📦 Carregar modelo e prever")
+        reset_btn = st.button("♻️ Resetar modelo e dados")
+
+    # Resetar sessão
+    if reset_btn:
+        for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "importances"]:
+            st.session_state[key] = False if key.endswith("trained") or key.endswith("made") else None
+        st.session_state["chat_messages"] = [
+            {"role": "assistant", "content": "Oi! Eu sou o bot do E-commerce. Envie seus dados para começar."}
+        ]
+        st.success("✅ Sessão reiniciada! Faça upload do CSV e treine um novo modelo.")
 
     # Treinar modelo
     if train_btn:
@@ -54,7 +64,9 @@ if uploaded_file is not None:
 
     # Fazer predições
     if predict_btn:
-        if not os.path.exists(MODEL_PATH):
+        if uploaded_file is None:
+            st.warning("📁 Faça upload de um CSV antes de prever.")
+        elif not os.path.exists(MODEL_PATH):
             st.error("Modelo não encontrado. Treine um modelo primeiro.")
         else:
             with st.spinner("Realizando predições..."):
@@ -62,6 +74,7 @@ if uploaded_file is not None:
                 st.session_state.prediction_df = df_pred
                 st.session_state.predictions_made = True
             st.success("✅ Predições realizadas!")
+
 
 # === Layout das abas ===
 tab_train, tab_predict, tab_chat = st.tabs(["📊 Resultados do Treino", "🚀 Predições", "💬 Chat"])
@@ -84,7 +97,14 @@ with tab_train:
         st.markdown("---")
         # Importâncias
         with st.expander("🔎 Importâncias das Features"):
-            st.dataframe(st.session_state.importances.head(20), use_container_width=True)
+            if st.session_state.importances is not None:
+                df_imp = st.session_state.importances.copy()
+                total_abs = df_imp["Coeficiente"].abs().sum()
+                df_imp["Importância (%)"] = (df_imp["Coeficiente"].abs() / total_abs * 100).round(1)
+                st.dataframe(df_imp[[df_imp.columns[0], "Importância (%)"]].head(10), use_container_width=True)
+            else:
+                st.info("Importâncias das features não estão disponíveis.")
+
 
 with tab_predict:
     st.markdown("<h2 style='color:white;'>🚀 Predições</h2>", unsafe_allow_html=True)
@@ -111,7 +131,7 @@ with tab_chat:
             question=prompt,
             metrics_df_or_dict=st.session_state.metrics,
             importances_df=st.session_state.importances,
-            model_pipe=None  # Se quiser habilitar previsões diretas, passe o pipeline aqui
+            model_pipe=None
         )
         st.session_state.chat_messages.append({"role": "assistant", "content": response})
         st.rerun()

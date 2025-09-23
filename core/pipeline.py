@@ -23,12 +23,25 @@ def fill_missing_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [c.strip() for c in df.columns]
     for col in REQUIRED_COLUMNS:
         if col not in df.columns:
-            df[col] = 0 if col in ["Quantity", "UnitPrice", "CustomerID"] else "Desconhecido"
+            if col == "CustomerID":
+                df[col] = "Desconhecido"
+            elif col in ["Quantity", "UnitPrice"]:
+                df[col] = 0
+            else:
+                df[col] = "Desconhecido"
+        else:
+            # Preencher apenas valores ausentes (NaN)
+            if col == "CustomerID":
+                df[col] = df[col].fillna("Desconhecido")
+            elif col in ["Quantity", "UnitPrice"]:
+                df[col] = df[col].fillna(0)
+            else:
+                df[col] = df[col].fillna("Desconhecido")
     return df
+
 
 # --- ETL para treino ---
 def run_etl_sot_to_spec_train():
-    """ETL atualizado: mantém CustomerID, Country, StockCode, Quantity, UnitPrice e TotalPrice."""
     from core.database import engine
     query = """
     SELECT CustomerID, Country, StockCode,
@@ -43,7 +56,6 @@ def run_etl_sot_to_spec_train():
 
 # --- ETL para teste ---
 def run_etl_for_test_data(df_test: pd.DataFrame):
-    """ETL para dados de teste, criando mesmas colunas que treino."""
     from core.database import engine
 
     df_test = fill_missing_columns(df_test)
@@ -107,6 +119,11 @@ def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
         raise ValueError("Tabela spec_sales está vazia.")
 
     feature_cols = ["CustomerID", "Country", "StockCode", "Quantity", "UnitPrice"]
+    # Garantir que todas as colunas existem
+    for col in feature_cols:
+        if col not in df_spec_predict.columns:
+            df_spec_predict[col] = 0 if col in ["Quantity", "UnitPrice", "CustomerID"] else "Desconhecido"
+
     X_predict = df_spec_predict[feature_cols]
 
     with open(model_path, "rb") as f:
@@ -115,5 +132,9 @@ def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
     predictions = model_pipe.predict(X_predict)
     df_pred = df_spec_predict[feature_cols].copy()
     df_pred["Predito"] = predictions
+
+    # ⚡ Ajustes para previsões realistas
+    df_pred.loc[df_pred["Quantity"] == 0, "Predito"] = 0
+    df_pred["Predito"] = df_pred["Predito"].clip(lower=0)
 
     return df_pred
