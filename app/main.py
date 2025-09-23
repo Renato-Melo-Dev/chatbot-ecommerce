@@ -23,7 +23,7 @@ st.set_page_config(page_title="📊 E-commerce ML - Chat", layout="wide")
 st.title("📊 Dashboard E-commerce com Treino / Predição / Chat")
 
 # Estado da sessão
-for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "chat_messages"]:
+for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "importances", "chat_messages"]:
     if key not in st.session_state:
         st.session_state[key] = False if key.endswith("trained") or key.endswith("made") else None
 
@@ -49,7 +49,7 @@ if uploaded_file is not None:
 
     # Resetar sessão
     if reset_btn:
-        for key in ["model_trained", "predictions_made", "prediction_df", "metrics"]:
+        for key in ["model_trained", "predictions_made", "prediction_df", "metrics", "importances"]:
             st.session_state[key] = False if key.endswith("trained") or key.endswith("made") else None
         st.session_state["chat_messages"] = [
             {"role": "assistant", "content": "Oi! Eu sou o bot do E-commerce. Envie seus dados para começar."}
@@ -59,14 +59,15 @@ if uploaded_file is not None:
     # Treinar modelo
     if train_btn:
         with st.spinner("Treinando modelo..."):
-            metrics, _ = run_training_pipeline(df, test_size=0.2, model_path=MODEL_PATH)
+            metrics, importances = run_training_pipeline(df, test_size=0.2, model_path=MODEL_PATH)
             st.session_state.model_trained = True
             st.session_state.predictions_made = False
             st.session_state.metrics = metrics
+            st.session_state.importances = importances
 
         st.success("✅ Modelo treinado e salvo!")
 
-        # --- Estatísticas do dataset de treino ---
+        # Estatísticas do dataset de treino
         df_spec = load_data("spec_sales")
         st.subheader("📈 Estatísticas do Dataset de Treino")
         st.write(f"Número de linhas: {df_spec.shape[0]}")
@@ -89,7 +90,7 @@ if uploaded_file is not None:
                 st.session_state.predictions_made = True
             st.success("✅ Predições realizadas!")
 
-# === Layout das abas ===
+# Layout das abas
 tab_train, tab_predict, tab_chat = st.tabs(["📊 Resultados do Treino", "🚀 Predições", "💬 Chat"])
 
 with tab_train:
@@ -129,12 +130,12 @@ with tab_chat:
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-    if prompt := st.chat_input("Pergunte sobre métricas, features ou previsões..."):
+    if prompt := st.chat_input("Pergunte sobre métricas, top features ou previsões..."):
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
         response = answer_from_metrics(
             question=prompt,
             metrics_df_or_dict=st.session_state.metrics,
-            importances_df=None,  # importâncias removidas
+            importances_df=st.session_state.importances,
             model_pipe=None
         )
         st.session_state.chat_messages.append({"role": "assistant", "content": response})

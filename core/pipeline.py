@@ -92,16 +92,16 @@ def evaluate_regressor_custom(y_true, y_pred):
     r2 = 1 - (np.sum((y_true - y_pred) ** 2) / np.sum((y_true - np.mean(y_true)) ** 2))
     return {"rmse": rmse, "mae": mae, "r2": r2}
 
-def train_regressor(X, y, preprocessor, test_size=0.2):
+def train_regressor(X, y, preprocessor, test_size=0.2, n_estimators=30):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
     model_pipe = Pipeline([
         ("pre", preprocessor),
-        ("reg", RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1))
+        ("reg", RandomForestRegressor(n_estimators=n_estimators, random_state=42, n_jobs=-1))
     ])
     model_pipe.fit(X_train, y_train)
     return model_pipe, X_test, y_test
 
-def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: str):
+def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: str, n_estimators=30):
     df_train = fill_missing_columns(df_train)
     create_database_and_tables()
     time.sleep(0.1)
@@ -120,7 +120,17 @@ def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: 
     y = np.log1p(df_spec["TotalPrice"])
 
     pre = make_preprocess_pipeline(X)
-    model_pipe, X_test, y_test = train_regressor(X, y, pre, test_size=test_size)
+    model_pipe, X_test, y_test = train_regressor(X, y, pre, test_size=test_size, n_estimators=n_estimators)
+
+    # --- Calculando importâncias ---
+    reg = model_pipe.named_steps["reg"]
+    all_features = model_pipe.named_steps["pre"].get_feature_names_out(X.columns)
+    importances = reg.feature_importances_
+
+    importances_df = pd.DataFrame({
+        "Feature": all_features,
+        "Importance": importances
+    }).sort_values(by="Importance", ascending=False)
 
     with open(model_path, "wb") as f:
         pickle.dump(model_pipe, f)
@@ -129,8 +139,7 @@ def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: 
     y_pred_orig = np.expm1(model_pipe.predict(X_test))
     metrics = evaluate_regressor_custom(y_test_orig, y_pred_orig)
 
-    # Não retornamos mais importâncias
-    return metrics, None
+    return metrics, importances_df
 
 def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
     df_test = fill_missing_columns(df_test)

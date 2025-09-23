@@ -1,37 +1,39 @@
 # core/chatbot/rules.py
-def answer_from_metrics(question: str, task: str = "regressão", metrics_df_or_dict=None, importances_df=None, df=None, model_pipe=None):
-    q = (question or "").lower()
+import pandas as pd
 
-    # 1️⃣ Pergunta sobre métricas
-    if "rmse" in q or "r²" in q or "r2" in q or "mae" in q or "métric" in q:
-        if metrics_df_or_dict:
-            metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in metrics_df_or_dict.items()])
-            return f"Métricas da tarefa {task}: {metrics_str}"
-        return "⚠️ Métricas não estão disponíveis."
+def answer_from_metrics(question, metrics_df_or_dict=None, importances_df=None, model_pipe=None):
+    """
+    Responde perguntas sobre métricas, importâncias e previsões.
+    """
+    question = question.lower().strip()
 
-    # 2️⃣ Pergunta sobre features
-    if "feature" in q or "variável" in q:
-        features = ["CustomerID", "Country", "StockCode", "Quantity", "UnitPrice", "Month", "Year"]
-        return f"🔧 As features usadas pelo modelo são: {', '.join(features)}. Importâncias detalhadas não estão disponíveis."
+    # 1️⃣ Pergunta sobre RMSE ou métricas
+    if "rmse" in question or "mae" in question or "r2" in question:
+        if metrics_df_or_dict is not None:
+            rmse = metrics_df_or_dict.get("rmse")
+            mae = metrics_df_or_dict.get("mae")
+            r2 = metrics_df_or_dict.get("r2")
+            return (f"📊 Métricas do modelo:\n"
+                    f"- RMSE: {rmse:.4f}\n"
+                    f"- MAE: {mae:.4f}\n"
+                    f"- R²: {r2:.4f}")
+        return "⚠️ Métricas do modelo não estão disponíveis."
 
-    # 3️⃣ Pergunta sobre pipeline
-    if "pipeline" in q or "treinado" in q or "como foi treinado" in q:
-        return "O pipeline faz imputação de valores faltantes, criação de Month/Year, one-hot encoding de variáveis categóricas e treina RandomForestRegressor."
+    # 2️⃣ Pergunta sobre top features
+    if "features mais importantes" in question or "top features" in question:
+        if importances_df is not None and not importances_df.empty:
+            top_features = importances_df.head(5)
+            features_list = ", ".join(top_features["Feature"].astype(str).tolist())
+            return f"🔎 As 5 features mais importantes são: {features_list}."
+        return "⚠️ Importâncias das features não estão disponíveis."
 
-    # 4️⃣ Pergunta sobre previsão
-    if "previsão" in q or "quanto seria" in q:
+    # 3️⃣ Pergunta sobre previsão
+    if "previsão" in question or "quanto seria" in question:
         if model_pipe is not None:
-            return ("Para gerar uma previsão, forneça CustomerID, Country, StockCode, Quantity e UnitPrice "
-                    "no formato: CustomerID=xxx, Country=YYY, StockCode=ZZZ, Quantity=N, UnitPrice=P")
-        return "⚠️ Modelo não carregado para fazer previsões."
-
-    # 5️⃣ Pergunta sobre número de clientes
-    if "cliente" in q or "quantos clientes" in q:
-        if df is not None and "CustomerID" in df.columns:
-            n_clients = df["CustomerID"].nunique()
-            return f"👥 Existem {n_clients} clientes únicos no dataset."
-        return "⚠️ Dataset não disponível para contar clientes."
+            return ("Para gerar uma previsão, forneça CustomerID e Country "
+                    "no formato: CustomerID=xxx, Country=YYY")
+        return "⚠️ Modelo não está carregado para fazer previsões."
 
     # Pergunta não reconhecida
     return ("❓ Desculpe, não entendi a pergunta. "
-            "Você pode perguntar sobre métricas, features, pipeline, previsões ou número de clientes.")
+            "Você pode perguntar sobre RMSE, top features ou previsões de TotalPrice.")
