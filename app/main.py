@@ -99,9 +99,16 @@ with tab_train:
         with st.expander("🔎 Importâncias das Features"):
             if st.session_state.importances is not None:
                 df_imp = st.session_state.importances.copy()
+                # Calcular % relativo e arredondar
                 total_abs = df_imp["Coeficiente"].abs().sum()
                 df_imp["Importância (%)"] = (df_imp["Coeficiente"].abs() / total_abs * 100).round(1)
-                st.dataframe(df_imp[[df_imp.columns[0], "Importância (%)"]].head(10), use_container_width=True)
+
+                # Usar Description se existir, senão primeira coluna
+                feature_name_col = "Description" if "Description" in df_imp.columns else df_imp.columns[0]
+
+                # Mostrar top 5
+                top_features = df_imp.sort_values(by="Importância (%)", ascending=False).head(5)
+                st.dataframe(top_features[[feature_name_col, "Importância (%)"]], use_container_width=True)
             else:
                 st.info("Importâncias das features não estão disponíveis.")
 
@@ -111,14 +118,24 @@ with tab_predict:
     if not st.session_state.predictions_made:
         st.info("Faça predições usando o modelo treinado.")
     else:
-        st.dataframe(st.session_state.prediction_df)
-        csv_data = convert_df_to_csv(st.session_state.prediction_df)
+        # Copiar dataframe para exibição
+        df_to_show = st.session_state.prediction_df.copy()
+        # Arredondar Predito
+        df_to_show["Predito"] = df_to_show["Predito"].round(2)
+
+        # Reorganizar colunas
+        cols_order = ["CustomerID", "Country", "StockCode", "Description", "Quantity", "UnitPrice", "Predito"]
+        st.dataframe(df_to_show[cols_order], use_container_width=True)
+
+        # CSV para download
+        csv_data = convert_df_to_csv(df_to_show[cols_order])
         st.download_button(
             label="⬇️ Baixar Previsões em CSV",
             data=csv_data,
             file_name="predictions.csv",
             mime="text/csv",
         )
+
 
 with tab_chat:
     st.markdown("<h2 style='color:white;'>💬 Converse com o Modelo</h2>", unsafe_allow_html=True)

@@ -19,49 +19,51 @@ A pasta `docs/` pode conter:
 ## 🖥️ Como rodar o projeto no Visual Studio Code  
 
 ### 1. Abrir o projeto  
-Abra o **VS Code** → *File → Open Folder* → selecione a pasta (`chatbot-ecommerce/`).  
+Abra o **VS Code → File → Open Folder** e selecione a pasta do projeto (`chatbot-ecommerce/`).  
 
 ### 2. Criar e ativar ambiente virtual  
-No terminal integrado (Ctrl+`):  
+No terminal integrado (Ctrl+`):
 
 ```bash
 # Criar ambiente virtual
 python -m venv .venv
-
+```
+```bash
 # Ativar no Linux/Mac
 source .venv/bin/activate
-
+```
+```bash
 # Ativar no Windows (PowerShell)
 .venv\Scripts\Activate.ps1
-
 ```
-### 2. Criar e ativar ambiente virtual
+```bash
+### 3. Instalar dependências
 pip install -r requirements.txt
+```
+```bash
+4. Rodar o Streamlit
+streamlit run app/main.py
+```
+### 5. Como usar o app
 
-### 4. Rodar o Streamlit
-streamlit run app/main_app.py
+Faça upload de um CSV com dados de vendas.
 
-### 5. Estrutura de código
+Na Sidebar, clique em Treinar modelo para gerar o modelo de previsão.
 
-- Front-end: app/main_app.py (UI em Streamlit)
+Clique em Carregar modelo e prever para gerar as previsões.
 
-- Back-end: core/ (dados, SQL, modelos, integrações)
-
-- Banco: ecommerce.db (SQLite, recriado a cada execução)
-
-- Notebooks: notebooks/ (exploração de dados e ML)
+Use as abas para visualizar Resultados do Treino, Predições ou conversar com o Chatbot sobre métricas e features.
 
 ### 📂 Estrutura de pastas
 chatbot-ecommerce/
-├─ app/            # Interface Streamlit
-│   └─ main_app.py
-├─ core/           # SQL, modelos e funções auxiliares
-│   └─ sql/        # Scripts SQL executados na inicialização
-├─ data/           # Dados brutos e tratados (CSV, SQLite)
-├─ models/         # Modelos salvos (.pkl)
-├─ notebooks/      # Notebooks de exploração (EDA e ML)
-├─ tests/          # Testes unitários e de integração
-├─ docs/           # Documentação (PMC, arquitetura, LGPD etc.)
-├─ requirements.txt
-└─ README.md
-
+├─ app/                # Interface Streamlit
+│   └─ main.py
+├─ core/               # SQL, modelos e funções auxiliares
+│   └─ chatbot/        # Regras do chatbot
+├─ data/               # Dados brutos e scripts SQL
+├─ models/             # Scripts de treino e predição
+├─ models_store/       # Modelos treinados (.pkl)
+├─ notebooks/          # Notebooks de exploração (EDA e ML)
+├─ docs/               # Documentação (PMC, arquitetura, LGPD etc.)
+├─ requirements.txt    # Dependências Python
+└─ README.md           # Este arquivo

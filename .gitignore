@@ -1,35 +1,19 @@
-# Cache do Python
+# Python
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Ambientes virtuais
+*.pyc
+*.pyo
+*.pyd
+*.env
 .venv/
-env/
-venv/
-ENV/
 
-# Banco de dados local
-*.db
-*.sqlite3
+# Jupyter
+.ipynb_checkpoints
 
-# Arquivos de modelo
-*.pkl
-*.joblib
+# SQLite database
+data/ecommerce.db
 
-# Notebooks checkpoints
-.ipynb_checkpoints/
+# Modelos treinados
+models_store/*.pkl
 
-# Configs do VSCode / IDE
+# VS Code
 .vscode/
-.idea/
-
-# Logs
-*.log
-
-# Arquivos temporários
-*.tmp
-*.swp
-*.bak
-.DS_Store
-Thumbs.db

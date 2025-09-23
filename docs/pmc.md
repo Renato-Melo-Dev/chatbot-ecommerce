@@ -1,58 +1,46 @@
-# Project Model Canvas — Kaggle Chatbot MVP (E-commerce)
+# Project Model Canvas — E-commerce ChatBot
+Contexto
 
-# Contexto
+O comércio eletrônico movimenta milhões de transações diariamente. Entender padrões de consumo ajuda a prever receita e melhorar decisões de negócio.
 
-As compras online se tornaram parte essencial do cotidiano.
-O dataset E-commerce Public Dataset for Machine Learning contém informações sobre transações de consumidores (idade, gênero, produtos, quantidade, preço unitário, etc.).
-O objetivo educacional é usar esse conjunto para analisar padrões de consumo e construir um chatbot interativo.
+## Problema a ser Respondido
 
-# Problema a ser Respondido
+Quais fatores influenciam o gasto de um cliente em uma compra de e-commerce?
 
-Quais características estão associadas a maiores gastos em e-commerce?
-É possível prever a receita gerada por uma compra com base nos atributos do consumidor e da transação?
+## Pergunta Norteadora
 
-# Pergunta Norteadora
+Qual será a receita gerada por uma compra de acordo com o cliente e seu país?
 
-Quanto uma transação/compra gera de receita?
-
-Quais variáveis mais impactam no gasto do consumidor?
-
-É possível treinar um modelo simples para estimar a receita?
-
-# Solução Proposta
+## Solução Proposta
 
 Desenvolver um chatbot educacional em Streamlit que:
 
-- Permita upload do dataset de e-commerce.
+Permita upload de datasets de e-commerce.
 
-- Treine modelos de:
+Treine modelos de regressão linear para prever a receita de compras.
 
-   Regressão linear (predição da receita).
+Mostre métricas de avaliação (RMSE, MAE, R²).
 
-   Árvores de decisão (comparação de desempenho).
+Explique a importância das variáveis no gasto do cliente (ex.: país, tipo de produto, quantidade, preço unitário).
 
-- Mostre métricas de avaliação (RMSE, MAE, R²).
+Responda perguntas do usuário via chatbot regrado.
 
-- Explique a importância das variáveis no gasto (ex.: categoria do produto, quantidade, preço unitário).
+## Desenho de Arquitetura
 
-- Responda perguntas do usuário via chatbot regrado.
+O sistema é organizado em camadas:
 
-# Desenho de Arquitetura
+Interface (app/): Streamlit para upload, treino, predição e perguntas.
 
-O sistema será estruturado em camadas:
+Core (core/): módulos para dados, pré-processamento, modelos, explicabilidade e chatbot.
 
-- Interface (app/): Streamlit como front-end para upload, treino e perguntas.
+Dados (data/): arquivos brutos, tratados e modelos treinados.
 
-- Core (core/): módulos para dados, features, modelos, explicabilidade e chatbot.
+Documentação (docs/): PMC, arquitetura, governança de dados e testes.
 
-- Dados (data/): pastas para armazenar arquivos brutos, tratados e modelos treinados.
+## Resultados Esperados
 
-- Documentação (docs/): PMC, arquitetura, governança e testes.
+Modelo de regressão capaz de prever a receita com erro aceitável.
 
-# Resultados Esperados
-
-Modelo de regressão com boa explicabilidade e erro aceitável (RMSE baixo).
-
-Relatório com as variáveis que mais influenciam nos gastos.
+Relatório das variáveis mais impactantes nos gastos dos clientes.
 
 Deploy em Streamlit Cloud com documentação completa no GitHub.

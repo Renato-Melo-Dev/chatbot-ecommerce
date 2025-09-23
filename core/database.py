@@ -6,10 +6,11 @@ DB_PATH = os.path.join("data", "ecommerce.db")
 engine = create_engine(f"sqlite:///{DB_PATH}")
 
 def create_database_and_tables():
-    """Cria o banco de dados e as tabelas a partir dos SQLs."""
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+    """Cria o banco de dados e as tabelas a partir dos SQLs, ou limpa se já existirem."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
     sql_files = ["data/sor_sales.sql", "data/sot_sales.sql", "data/spec_sales.sql"]
+
     with engine.begin() as conn:
         for file in sql_files:
             with open(file, "r", encoding="utf-8") as f:
@@ -18,6 +19,10 @@ def create_database_and_tables():
                     q = q.strip()
                     if q:
                         conn.execute(text(q))
+
+        # Limpar dados das tabelas (em vez de deletar o DB)
+        for table in ["SOR", "SOT", "spec_sales"]:
+            conn.execute(text(f"DELETE FROM {table}"))
 
 def insert_csv_to_sor(df):
     """Insere CSV na tabela SOR."""

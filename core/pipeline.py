@@ -2,6 +2,7 @@
 import pickle
 import time
 import pandas as pd
+import numpy as np
 from core.database import (
     create_database_and_tables,
     insert_csv_to_sor,
@@ -10,7 +11,6 @@ from core.database import (
 )
 from core.preprocess import make_preprocess_pipeline
 from models.train import train_regressor
-from models.predict import evaluate_regressor
 from models.coefficients import extract_linear_importances
 
 REQUIRED_COLUMNS = [
@@ -30,7 +30,6 @@ def fill_missing_columns(df: pd.DataFrame) -> pd.DataFrame:
             else:
                 df[col] = "Desconhecido"
         else:
-            # Preencher apenas valores ausentes (NaN)
             if col == "CustomerID":
                 df[col] = df[col].fillna("Desconhecido")
             elif col in ["Quantity", "UnitPrice"]:
@@ -39,17 +38,16 @@ def fill_missing_columns(df: pd.DataFrame) -> pd.DataFrame:
                 df[col] = df[col].fillna("Desconhecido")
     return df
 
-
 # --- ETL para treino ---
 def run_etl_sot_to_spec_train():
     from core.database import engine
     query = """
-    SELECT CustomerID, Country, StockCode,
+    SELECT CustomerID, Country, StockCode, Description,
            SUM(Quantity) AS Quantity,
            AVG(UnitPrice) AS UnitPrice,
            SUM(Quantity * UnitPrice) AS TotalPrice
     FROM SOT
-    GROUP BY CustomerID, Country, StockCode
+    GROUP BY CustomerID, Country, StockCode, Description
     """
     df = pd.read_sql(query, engine)
     df.to_sql("spec_sales", engine, if_exists="replace", index=False)
@@ -62,15 +60,23 @@ def run_etl_for_test_data(df_test: pd.DataFrame):
     df_test.to_sql("SOR_TEST", engine, if_exists="replace", index=False)
 
     query = """
-    SELECT CustomerID, Country, StockCode,
+    SELECT CustomerID, Country, StockCode, Description,
            SUM(Quantity) AS Quantity,
            AVG(UnitPrice) AS UnitPrice,
            SUM(Quantity * UnitPrice) AS TotalPrice
     FROM SOR_TEST
-    GROUP BY CustomerID, Country, StockCode
+    GROUP BY CustomerID, Country, StockCode, Description
     """
     df_sot_test = pd.read_sql(query, engine)
     df_sot_test.to_sql("spec_sales", engine, if_exists="replace", index=False)
+
+# --- Função de avaliação custom ---
+def evaluate_regressor_custom(y_true, y_pred):
+    mse = np.mean((y_true - y_pred) ** 2)
+    rmse = np.sqrt(mse)
+    mae = np.mean(np.abs(y_true - y_pred))
+    r2 = 1 - (np.sum((y_true - y_pred) ** 2) / np.sum((y_true - np.mean(y_true)) ** 2))
+    return {"rmse": rmse, "mae": mae, "r2": r2}
 
 # --- Pipeline de treino ---
 def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: str):
@@ -96,7 +102,7 @@ def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: 
 
     feature_cols = ["CustomerID", "Country", "StockCode", "Quantity", "UnitPrice"]
     X = df_spec[feature_cols]
-    y = df_spec[target]
+    y = np.log1p(df_spec[target])  # log-transform para evitar negativos
 
     pre = make_preprocess_pipeline(X)
     model_pipe, X_test, y_test = train_regressor(X, y, pre, test_size=test_size)
@@ -104,7 +110,11 @@ def run_training_pipeline(df_train: pd.DataFrame, test_size: float, model_path: 
     with open(model_path, "wb") as f:
         pickle.dump(model_pipe, f)
 
-    metrics = evaluate_regressor(model_pipe, X_test, y_test)
+    # Avaliar usando valores originais
+    y_test_orig = np.expm1(y_test)
+    y_pred_orig = np.expm1(model_pipe.predict(X_test))
+    metrics = evaluate_regressor_custom(y_test_orig, y_pred_orig)
+
     importances = extract_linear_importances(model_pipe, X.columns, pre)
 
     return metrics, importances
@@ -119,7 +129,6 @@ def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
         raise ValueError("Tabela spec_sales está vazia.")
 
     feature_cols = ["CustomerID", "Country", "StockCode", "Quantity", "UnitPrice"]
-    # Garantir que todas as colunas existem
     for col in feature_cols:
         if col not in df_spec_predict.columns:
             df_spec_predict[col] = 0 if col in ["Quantity", "UnitPrice", "CustomerID"] else "Desconhecido"
@@ -129,12 +138,11 @@ def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
     with open(model_path, "rb") as f:
         model_pipe = pickle.load(f)
 
-    predictions = model_pipe.predict(X_predict)
-    df_pred = df_spec_predict[feature_cols].copy()
-    df_pred["Predito"] = predictions
+    predictions_log = model_pipe.predict(X_predict)
+    predictions = np.expm1(predictions_log)  # volta ao valor original
+    predictions = np.maximum(predictions, 0)  # garante que não seja negativo
 
-    # ⚡ Ajustes para previsões realistas
-    df_pred.loc[df_pred["Quantity"] == 0, "Predito"] = 0
-    df_pred["Predito"] = df_pred["Predito"].clip(lower=0)
+    df_pred = df_spec_predict[feature_cols + ["Description"]].copy()  # Mantém Description
+    df_pred["Predito"] = predictions
 
     return df_pred
