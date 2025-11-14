@@ -3,17 +3,44 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.env
+*.py[cod]
+
+# Ambiente virtual
 .venv/
+venv/
+ENV/
+env/
 
-# Jupyter
-.ipynb_checkpoints
+# IDEs e editores
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
 
-# SQLite database
-data/ecommerce.db
+# Dados e banco de dados
+
+*.db
+*.sqlite3
 
 # Modelos treinados
-models_store/*.pkl
+models_store/
+*.pkl
+*.joblib
 
-# VS Code
-.vscode/
+# Logs e caches
+*.log
+*.cache
+*.tmp
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Jupyter
+.ipynb_checkpoints/
+# Ambiente virtual
+.venv/
+.env

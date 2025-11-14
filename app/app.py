@@ -1,4 +1,3 @@
-# app/main.py
 import sys
 import os
 import pickle
@@ -12,7 +11,7 @@ from openai import OpenAI
 # carregar .env
 load_dotenv()
 
-# ajustar caminho do projeto (se necessário)
+# ajustar caminho do projeto
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # imports do projeto
@@ -43,7 +42,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, "model_sales.pkl")
 
 # === Streamlit config ===
-st.set_page_config(page_title="📊 E-commerce ML - Cha", layout="wide")
+st.set_page_config(page_title="📊 E-commerce ML - Chat", layout="wide")
 st.title("📊 E-commerce ML")
 
 # === Estado da sessão (inicializações) ===
@@ -62,7 +61,7 @@ if "chat_history" not in st.session_state:
         {"role": "assistant", "content": "Oi! Eu sou o bot do E-commerce. Envie seus dados para começar."}
     ]
 if "api_messages" not in st.session_state:
-    st.session_state.api_messages = []  # mensagens que serão enviadas para a API (system + contexto + histórico)
+    st.session_state.api_messages = []
 
 # util: converter df -> csv
 @st.cache_data
@@ -72,34 +71,25 @@ def convert_df_to_csv(df):
 # === SIDEBAR: Configs e Ações ===
 with st.sidebar:
     st.header("Configurações")
-
-    # Treino / Test split slider
     test_size = st.slider("Tamanho do conjunto de teste", 0.1, 0.4, 0.2, 0.05)
-
-    # RAG / contexto
     max_ctx = st.slider("Limite do contexto (caracteres)", 500, 12000, 4000, step=500)
     show_ctx = st.checkbox("Mostrar contexto gerado", value=False)
-
-    # Seleção de modelo de API
     model_api = st.selectbox("Modelo (API)", ["gpt-4o-mini","gpt-4o","gpt-4.1-mini"], index=0)
-
-    # System prompt editável
-    sys_prompt = st.text_area("System prompt (comportamento do assistente)",
-                             value="Você é um analista de dados. Use o contexto fornecido para responder de forma precisa e objetiva.",
-                             height=120)
-
+    sys_prompt = st.text_area(
+        "System prompt (comportamento do assistente)",
+        value="Você é um analista de dados especializado em e-commerce. Para cada pergunta do usuário, responda com os dados solicitados e acrescente insights interpretativos relevantes, como padrões de venda, tendências de preço, oportunidades de negócio, diferenças entre países ou comportamentos de clientes. Sempre baseie os insights nos dados fornecidos, seja claro e objetivo, e destaque informações importantes que o usuário possa não perceber imediatamente.",
+        height=120
+    )
     st.markdown("---")
     st.header("Ações")
-
     uploaded_file = st.file_uploader("📁 Faça upload do CSV (dataset)", type=["csv"])
     train_btn = st.button("🚀 Treinar modelo (com ETL / pipeline)")
     predict_btn = st.button("📦 Carregar modelo e prever")
     reset_btn = st.button("♻️ Resetar modelo, banco e sessão")
-
     st.markdown("---")
     st.caption("Modo de Chat: escolha na aba Chat qual fluxo usar (LLM / RAG / ML)")
 
-# === Upload / treinar / prever / reset ===
+# === Upload / Treinar / Prever / Reset ===
 df = None
 if uploaded_file is not None:
     try:
@@ -108,11 +98,9 @@ if uploaded_file is not None:
         st.warning(f"Erro ao ler CSV: {e}")
 
 if reset_btn:
-    # reset simples
     for key in ["model_trained","predictions_made","prediction_df","metrics","importances","chat_history","api_messages"]:
         if key in st.session_state:
             del st.session_state[key]
-    # recriar mensagens iniciais
     st.session_state.chat_history = [{"role":"assistant","content":"Oi! Eu sou o bot do E-commerce. Envie seus dados para começar."}]
     st.success("Sessão e modelos resetados. Recarregue a página se necessário.")
     st.experimental_rerun()
@@ -123,12 +111,9 @@ if train_btn:
     else:
         with st.spinner("Treinando modelo... (rodando pipeline)"):
             metrics, model_obj = run_training_pipeline(df, test_size=test_size, model_path=MODEL_PATH)
-            # run_training_pipeline deve retornar métricas e o objeto treinado (ou salvar em disco)
             st.session_state.model_trained = True
             st.session_state.metrics = metrics
-            # tentar extrair importances — isso depende de como o pipeline salva
             try:
-                # se model_obj existir e tiver attribute feature_importances_
                 if model_obj is not None and hasattr(model_obj, "feature_importances_"):
                     importances = pd.DataFrame({
                         "feature": getattr(model_obj, "feature_names_in_", None) or list(range(len(model_obj.feature_importances_))),
@@ -153,10 +138,10 @@ if predict_btn:
             st.session_state.predictions_made = True
         st.success("✅ Predições realizadas!")
 
-# === Layout principal: tabs ===
+# === Tabs ===
 tab_train, tab_predict, tab_chat = st.tabs(["📊 Resultados do Treino", "🚀 Predições", "💬 Chat"])
 
-# === Tab: Treino / Métricas / Importances ===
+# === Tab: Treino ===
 with tab_train:
     st.header("📊 Resultados do Treino")
     if not st.session_state.get("model_trained") or st.session_state.get("metrics") is None:
@@ -181,157 +166,92 @@ with tab_predict:
         csv_data = convert_df_to_csv(df_to_show)
         st.download_button("⬇️ Baixar Previsões em CSV", data=csv_data, file_name="predictions.csv", mime="text/csv")
 
-# === Funções de construção de contexto (RAG) ===
+# === Funções de contexto ===
 def numeric_summary(df: pd.DataFrame) -> str:
     num_cols = df.select_dtypes(include="number").columns
-    if len(num_cols) == 0:
-        return "(Sem colunas numéricas)"
+    if len(num_cols) == 0: return "(Sem colunas numéricas)"
     desc = df[num_cols].describe().T
     desc["median"] = df[num_cols].median()
-    cols = ["count","mean","median","std","min","max"]
-    return desc[cols].head(20).to_string()
+    return desc[["count","mean","median","std","min","max"]].head(20).to_string()
 
 def categorical_summary(df: pd.DataFrame, top_k: int = 5) -> str:
     cat_cols = df.select_dtypes(include=["object","category","bool"]).columns
-    if len(cat_cols) == 0:
-        return "(Sem colunas categóricas)"
+    if len(cat_cols) == 0: return "(Sem colunas categóricas)"
     lines = []
     for c in cat_cols:
         vc = df[c].value_counts(dropna=False).head(top_k)
         lines.append(f"Coluna: {c}\n{vc.to_string()}\n")
     return "\n".join(lines)
 
-def correlation_with_target(df: pd.DataFrame, target_col: str, top_n: int = 10) -> str:
-    if target_col not in df.columns:
-        return f"(Coluna alvo '{target_col}' não encontrada.)"
-    try:
-        t = pd.to_numeric(df[target_col], errors="coerce")
-        num_cols = df.select_dtypes(include="number").columns
-        corrs = []
-        for c in num_cols:
-            if c == target_col:
-                continue
-            corr = t.corr(pd.to_numeric(df[c], errors="coerce"))
-            if pd.notna(corr):
-                corrs.append((c, corr))
-        corrs.sort(key=lambda x: abs(x[1]), reverse=True)
-        lines = [f"{c}: {v:.3f}" for c,v in corrs[:top_n]]
-        return "\n".join(lines) if lines else "(Sem correlações calculáveis)"
-    except Exception as e:
-        return f"(Erro ao calcular correlações: {e})"
-
 def build_context_from_df(df: pd.DataFrame, max_chars: int = 4000, target_col: str = None) -> str:
-    parts = []
-    parts.append(f"Shape: {df.shape[0]} linhas x {df.shape[1]} colunas")
-    parts.append("\n[Resumo numérico]\n" + numeric_summary(df))
-    parts.append("\n[Resumo categórico]\n" + categorical_summary(df))
-    if target_col:
-        parts.append(f"\n[Correlação com '{target_col}']\n" + correlation_with_target(df, target_col))
-    try:
-        sample_text = df.head(5).to_string()
-        parts.append("\n[Exemplo - 5 primeiras linhas]\n" + sample_text)
-    except Exception:
-        pass
+    parts = [f"Shape: {df.shape[0]} linhas x {df.shape[1]} colunas",
+             "\n[Resumo numérico]\n" + numeric_summary(df),
+             "\n[Resumo categórico]\n" + categorical_summary(df)]
+    try: parts.append("\n[Exemplo - 5 primeiras linhas]\n" + df.head(5).to_string())
+    except Exception: pass
     ctx = "\n\n".join(parts)
-    if len(ctx) > max_chars:
-        ctx = ctx[:max_chars] + "\n... (contexto truncado)"
-    return ctx
+    return ctx[:max_chars] + ("\n... (contexto truncado)" if len(ctx) > max_chars else "")
 
-# === Tab: Chat (múltiplos modos) ===
+# === Função de insights on-demand ===
+def get_insight(user_prompt: str, df: pd.DataFrame) -> str:
+    prompt = user_prompt.lower()
+    if "produto mais caro" in prompt or "mais caro" in prompt:
+        linha = df.loc[df["UnitPrice"].idxmax()]
+        return f"💰 Produto mais caro: {linha['Description']} (Código: {linha['StockCode']}), preço unitário: {linha['UnitPrice']}, país: {linha['Country']}"
+    elif "mais vendidos" in prompt or "top produtos" in prompt:
+        import re
+        n = 5
+        match = re.search(r'\b\d+\b', prompt)
+        if match: n = int(match.group())
+        top = df.groupby(['StockCode','Description'])['Quantity'].sum().sort_values(ascending=False).head(n)
+        lines = [f"{i+1}. {desc} (Código: {code}) - {qty} unidades vendidas" 
+                 for i, ((code, desc), qty) in enumerate(top.items())]
+        return "🏆 Top produtos mais vendidos:\n" + "\n".join(lines)
+    elif "mais caro" in prompt and "por país" in prompt:
+        countries = df['Country'].unique()
+        lines = []
+        for c in countries:
+            sub = df[df['Country'] == c]
+            if not sub.empty:
+                linha = sub.loc[sub['UnitPrice'].idxmax()]
+                lines.append(f"{c}: {linha['Description']} - {linha['UnitPrice']}")
+        return "💎 Produto mais caro por país:\n" + "\n".join(lines)
+    else:
+        return None
+
+# === Tab: Chat ===
 with tab_chat:
-    st.header("💬 Converse com o Modelo")
+    st.header("💬 Conversar (RAG)")
 
-    # escolher modo: LLM puro / RAG (base) / ML (respostas baseadas no modelo local)
-    chat_mode = st.selectbox("Modo de Chat", ["LLM (API)", "RAG (contexto da base)", "ML (respostas do modelo local)"])
-
-    # exibir histórico
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # novo prompt do usuário
-    user_prompt = st.chat_input("Digite sua pergunta (ex: 'Quais as métricas?' / 'Qual a importância da feature X?')")
-
+    user_prompt = st.chat_input("Digite sua pergunta")
     if user_prompt:
-        # append display user
         st.session_state.chat_history.append({"role": "user", "content": user_prompt})
 
-        # carregamentos necessários
-        df_spec = None
-        if os.path.exists(MODEL_PATH):
-            try:
-                with open(MODEL_PATH, "rb") as f:
-                    model_pipe = pickle.load(f)
-            except Exception:
-                model_pipe = None
-        else:
-            model_pipe = None
-
-        # ROTEIRO por modo
-        if chat_mode == "ML (respostas do modelo local)":
-            # usar sua função rules.py para gerar resposta baseada em métricas / modelo
-            try:
-                response = answer_from_metrics(
-                    question=user_prompt,
-                    metrics_df_or_dict=st.session_state.metrics,
-                    importances_df=st.session_state.importances,
-                    model_pipe=model_pipe,
-                    df_spec=load_data("spec_sales") if "spec_sales" in [f[:-3] for f in os.listdir("data") if f.endswith(".py")] else None
-                )
-            except Exception:
-                # fallback simples: usar metrics/importances se disponível
-                if st.session_state.metrics is not None:
-                    response = f"Métricas: {st.session_state.metrics}\n\nImportances: {st.session_state.importances if st.session_state.importances is not None else '(não disponível)'}"
-                else:
-                    response = "Não há métricas/modelo disponível para responder. Treine um modelo primeiro."
-            st.session_state.chat_history.append({"role":"assistant","content":response})
-            with st.chat_message("assistant"):
-                st.markdown(response)
-            st.rerun()
-
-        elif chat_mode == "RAG (contexto da base)":
-            # carregar tabela spec (se existir)
+        try:
+            df_context = load_data("spec_sales")
+        except Exception:
             df_context = None
-            try:
-                df_context = load_data("spec_sales")
-            except Exception:
-                df_context = None
 
-            if df_context is None or df_context.empty:
-                reply = "Tabela 'spec_sales' não encontrada. Treine/execute o pipeline para gerar a tabela final (ou faça upload/ETL)."
-                st.session_state.chat_history.append({"role":"assistant","content":reply})
-                with st.chat_message("assistant"):
-                    st.markdown(reply)
-                st.rerun()
+        if df_context is None or df_context.empty:
+            reply = "Tabela 'spec_sales' não encontrada. Execute o pipeline ou forneça os dados."
+        else:
+            insight_reply = get_insight(user_prompt, df_context)
+            if insight_reply:
+                reply = insight_reply
             else:
-                context_text = build_context_from_df(df_context, max_chars=max_ctx, target_col=None)
-                if show_ctx:
-                    with st.expander("Ver contexto (resumo da base)"):
-                        st.text(context_text)
-
-                # montar mensagens para a API: system + contexto + histórico + pergunta
-                msgs = []
-                msgs.append({"role":"system","content": sys_prompt})
-                msgs.append({"role":"user","content": f"Contexto da base:\n{context_text}"})
-
-                # enviar histórico (limitado) - apenas últimos N mensagens para evitar token explosion
-                history_limit = 12
-                for m in st.session_state.chat_history[-history_limit:]:
-                    if m["role"] in ("user","assistant"):
-                        msgs.append({"role": m["role"], "content": m["content"]})
-
-                # incluir importances/metrics para auxiliar
+                context_text = build_context_from_df(df_context, max_chars=max_ctx)
+                msgs = [{"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": f"Contexto da base:\n{context_text}"}]
+                for m in st.session_state.chat_history[-12:]:
+                    msgs.append({"role": m["role"], "content": m["content"]})
                 if st.session_state.importances is not None:
-                    # enviar top 10 importances como tabela curta
-                    try:
-                        top_imp = st.session_state.importances.head(10).to_string(index=False)
-                        msgs.append({"role":"user","content": f"Top importances:\n{top_imp}"})
-                    except Exception:
-                        pass
+                    msgs.append({"role": "user", "content": f"Top importances:\n{st.session_state.importances.head(10).to_string(index=False)}"})
                 if st.session_state.metrics is not None:
-                    msgs.append({"role":"user","content": f"Métricas do modelo:\n{st.session_state.metrics}"})
-
-                # chamada para a API
+                    msgs.append({"role": "user", "content": f"Métricas do modelo:\n{st.session_state.metrics}"})
                 try:
                     client = get_client()
                     resp = client.chat.completions.create(
@@ -341,41 +261,10 @@ with tab_chat:
                     )
                     reply = resp.choices[0].message.content
                 except Exception as e:
-                    reply = f"Erro na chamada à API: {e}"
+                    reply = f"Erro na API: {e}"
 
-                st.session_state.chat_history.append({"role":"assistant","content":reply})
-                with st.chat_message("assistant"):
-                    st.markdown(reply)
-                # persistir msgs usadas (opcional)
-                st.session_state.api_messages = msgs
-                st.rerun()
-
-        else:  # chat_mode == "LLM (API)"
-            # modo LLM puro: envia prompt + (opcional) metrics/importances se existirem
-            msgs = []
-            msgs.append({"role":"system","content": sys_prompt})
-            if st.session_state.metrics is not None:
-                msgs.append({"role":"user","content": f"Métricas do modelo:\n{st.session_state.metrics}"})
-            if st.session_state.importances is not None:
-                try:
-                    msgs.append({"role":"user","content": f"Top importances:\n{st.session_state.importances.head(10).to_string(index=False)}"})
-                except Exception:
-                    pass
-            msgs.append({"role":"user","content": user_prompt})
-
-            try:
-                client = get_client()
-                resp = client.chat.completions.create(
-                    model=model_api,
-                    messages=msgs,
-                    temperature=0.4,
-                )
-                reply = resp.choices[0].message.content
-            except Exception as e:
-                reply = f"Erro na chamada à API: {e}"
-
-            st.session_state.chat_history.append({"role":"assistant","content":reply})
-            with st.chat_message("assistant"):
-                st.markdown(reply)
-            st.session_state.api_messages = msgs
-            st.rerun()
+        st.session_state.chat_history.append({"role": "assistant", "content": reply})
+        with st.chat_message("assistant"):
+            st.markdown(reply)
+        st.session_state.api_messages = msgs if 'msgs' in locals() else []
+        st.rerun()

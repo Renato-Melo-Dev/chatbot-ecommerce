@@ -3,7 +3,7 @@ import pickle
 import time
 import pandas as pd
 import numpy as np
-from core.Data.database import (
+from core.data.database import (
     create_database_and_tables,
     insert_csv_to_sor,
     run_etl_sor_to_sot,
@@ -49,7 +49,7 @@ def add_date_features(df):
     return df
 
 def run_etl_sot_to_spec_train():
-    from core.Data.database import engine
+    from core.data.database import engine
     query = """
     SELECT CustomerID, Country, StockCode, Description,
            SUM(Quantity) AS Quantity,
@@ -67,7 +67,7 @@ def run_etl_sot_to_spec_train():
     df.to_sql("spec_sales", engine, if_exists="replace", index=False)
 
 def run_etl_for_test_data(df_test: pd.DataFrame):
-    from core.Data.database import engine
+    from core.data.database import engine
     df_test = fill_missing_columns(df_test)
     df_test.to_sql("SOR_TEST", engine, if_exists="replace", index=False)
 
