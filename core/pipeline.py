@@ -13,6 +13,7 @@ from core.explain.preprocess import make_preprocess_pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestRegressor
+from core.data.generate_context import generate_context
 
 REQUIRED_COLUMNS = [
     "InvoiceNo", "StockCode", "Description", "Quantity",
@@ -165,3 +166,12 @@ def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
     df_pred = df_spec_predict[feature_cols + ["Description"]].copy()
     df_pred["Predito"] = predictions
     return df_pred
+
+def run_pipeline():
+    print("Executando pipeline de dados...")
+
+    # sua lógica já existente de ETL, load, model etc.
+
+    print("Gerando resumo estatístico para RAG...")
+    ctx_path = generate_context(summary_type="describe")
+    print(f"Contexto atualizado em: {ctx_path}")

@@ -16,7 +16,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # imports do projeto
 from core.pipeline import run_training_pipeline, run_prediction_pipeline, load_data
-from core.chatbot.rules import answer_from_metrics
+from core.chatbot.insights import gerar_insights
 
 # === Helpers OpenAI ===
 def get_api_key():
@@ -28,6 +28,7 @@ def get_api_key():
             key = None
     return key
 
+
 def get_client():
     k = get_api_key()
     if not k:
@@ -35,6 +36,7 @@ def get_client():
         st.stop()
     os.environ["OPENAI_API_KEY"] = k
     return OpenAI()
+
 
 # === Paths e constantes ===
 MODEL_DIR = "models_store"
@@ -77,8 +79,10 @@ with st.sidebar:
     model_api = st.selectbox("Modelo (API)", ["gpt-4o-mini","gpt-4o","gpt-4.1-mini"], index=0)
     sys_prompt = st.text_area(
         "System prompt (comportamento do assistente)",
-        value="Você é um analista de dados especializado em e-commerce. Para cada pergunta do usuário, responda com os dados solicitados e acrescente insights interpretativos relevantes, como padrões de venda, tendências de preço, oportunidades de negócio, diferenças entre países ou comportamentos de clientes. Sempre baseie os insights nos dados fornecidos, seja claro e objetivo, e destaque informações importantes que o usuário possa não perceber imediatamente.",
-        height=120
+        value=("Você é um analista de dados especializado em e-commerce. "
+               "Responda de forma clara e objetiva. Use apenas os dados do contexto fornecido. "
+               "Não inclua métricas de ML a menos que o usuário solicite especificamente."),
+        height=140
     )
     st.markdown("---")
     st.header("Ações")
@@ -87,7 +91,7 @@ with st.sidebar:
     predict_btn = st.button("📦 Carregar modelo e prever")
     reset_btn = st.button("♻️ Resetar modelo, banco e sessão")
     st.markdown("---")
-    st.caption("Modo de Chat: escolha na aba Chat qual fluxo usar (LLM / RAG / ML)")
+    st.caption("Modo de Chat: RAG = usa o resumo da base (SPEC). Peça métricas explicitamente se quiser.")
 
 # === Upload / Treinar / Prever / Reset ===
 df = None
@@ -110,20 +114,10 @@ if train_btn:
         st.warning("Faça upload de um CSV antes de treinar.")
     else:
         with st.spinner("Treinando modelo... (rodando pipeline)"):
-            metrics, model_obj = run_training_pipeline(df, test_size=test_size, model_path=MODEL_PATH)
+            metrics, importances = run_training_pipeline(df, test_size=test_size, model_path=MODEL_PATH)
             st.session_state.model_trained = True
             st.session_state.metrics = metrics
-            try:
-                if model_obj is not None and hasattr(model_obj, "feature_importances_"):
-                    importances = pd.DataFrame({
-                        "feature": getattr(model_obj, "feature_names_in_", None) or list(range(len(model_obj.feature_importances_))),
-                        "importance": model_obj.feature_importances_
-                    }).sort_values("importance", ascending=False)
-                    st.session_state.importances = importances.reset_index(drop=True)
-                else:
-                    st.session_state.importances = None
-            except Exception:
-                st.session_state.importances = None
+            st.session_state.importances = importances
         st.success("✅ Modelo treinado e salvo!")
 
 if predict_btn:
@@ -166,13 +160,14 @@ with tab_predict:
         csv_data = convert_df_to_csv(df_to_show)
         st.download_button("⬇️ Baixar Previsões em CSV", data=csv_data, file_name="predictions.csv", mime="text/csv")
 
-# === Funções de contexto ===
+# === Funções de contexto (RAG helpers) ===
 def numeric_summary(df: pd.DataFrame) -> str:
     num_cols = df.select_dtypes(include="number").columns
     if len(num_cols) == 0: return "(Sem colunas numéricas)"
     desc = df[num_cols].describe().T
     desc["median"] = df[num_cols].median()
     return desc[["count","mean","median","std","min","max"]].head(20).to_string()
+
 
 def categorical_summary(df: pd.DataFrame, top_k: int = 5) -> str:
     cat_cols = df.select_dtypes(include=["object","category","bool"]).columns
@@ -183,88 +178,148 @@ def categorical_summary(df: pd.DataFrame, top_k: int = 5) -> str:
         lines.append(f"Coluna: {c}\n{vc.to_string()}\n")
     return "\n".join(lines)
 
-def build_context_from_df(df: pd.DataFrame, max_chars: int = 4000, target_col: str = None) -> str:
+
+def build_context_from_df(df: pd.DataFrame, max_chars: int = 4000, include_sample: bool = True) -> str:
     parts = [f"Shape: {df.shape[0]} linhas x {df.shape[1]} colunas",
              "\n[Resumo numérico]\n" + numeric_summary(df),
              "\n[Resumo categórico]\n" + categorical_summary(df)]
-    try: parts.append("\n[Exemplo - 5 primeiras linhas]\n" + df.head(5).to_string())
-    except Exception: pass
+    if include_sample:
+        try:
+            parts.append("\n[Exemplo - 5 primeiras linhas]\n" + df.head(5).to_string())
+        except Exception:
+            pass
     ctx = "\n\n".join(parts)
     return ctx[:max_chars] + ("\n... (contexto truncado)" if len(ctx) > max_chars else "")
 
-# === Função de insights on-demand ===
-def get_insight(user_prompt: str, df: pd.DataFrame) -> str:
-    prompt = user_prompt.lower()
-    if "produto mais caro" in prompt or "mais caro" in prompt:
-        linha = df.loc[df["UnitPrice"].idxmax()]
-        return f"💰 Produto mais caro: {linha['Description']} (Código: {linha['StockCode']}), preço unitário: {linha['UnitPrice']}, país: {linha['Country']}"
-    elif "mais vendidos" in prompt or "top produtos" in prompt:
+# === Função de geração de resposta local (insights on-demand) ===
+def get_local_insight(user_prompt: str, df: pd.DataFrame) -> str:
+    """
+    Tenta responder localmente (sem chamar API) para consultas comuns:
+    - top produtos (por país opcional)
+    - produto mais caro (por país opcional)
+    - top clientes
+    - gerar insights gerais via core.chatbot.insights.gerar_insights
+    Retorna None se não identificar intenção específica.
+    """
+    q = (user_prompt or "").lower()
+
+    # casual greetings
+    if any(k in q for k in ["oi","olá","ola","tudo bem","bom dia","boa tarde","boa noite"]):
+        return "Oi! 😊 Posso ajudar com análises da base (top produtos, vendas por país, clientes) ou com perguntas técnicas sobre o modelo."
+
+    # detectar país (palavras simples em pt ou en)
+    country = None
+    for cand in df['Country'].unique():
+        if cand.lower() in q:
+            country = cand
+            break
+
+    # top produtos
+    if "top" in q and ("produto" in q or "produtos" in q):
+        # extrair número (top N)
         import re
         n = 5
-        match = re.search(r'\b\d+\b', prompt)
-        if match: n = int(match.group())
-        top = df.groupby(['StockCode','Description'])['Quantity'].sum().sort_values(ascending=False).head(n)
-        lines = [f"{i+1}. {desc} (Código: {code}) - {qty} unidades vendidas" 
-                 for i, ((code, desc), qty) in enumerate(top.items())]
-        return "🏆 Top produtos mais vendidos:\n" + "\n".join(lines)
-    elif "mais caro" in prompt and "por país" in prompt:
-        countries = df['Country'].unique()
-        lines = []
-        for c in countries:
-            sub = df[df['Country'] == c]
-            if not sub.empty:
-                linha = sub.loc[sub['UnitPrice'].idxmax()]
-                lines.append(f"{c}: {linha['Description']} - {linha['UnitPrice']}")
-        return "💎 Produto mais caro por país:\n" + "\n".join(lines)
-    else:
-        return None
+        m = re.search(r"top\s*(\d+)", q)
+        if m:
+            try:
+                n = int(m.group(1))
+            except: pass
+        sub = df[df['Country'] == country] if country else df
+        top = sub.groupby(['StockCode','Description'])['Quantity'].sum().sort_values(ascending=False).head(n)
+        lines = [f"{i+1}. {desc} (Código: {code}) - {qty} unidades" for i, ((code, desc), qty) in enumerate(top.items())]
+        insight_text = gerar_insights(sub if country else df, top_n_products=n, country=country)
+        return "🏆 Top produtos:\n" + "\n".join(lines) + "\n\n" + insight_text
+
+    # produto mais caro
+    if "mais caro" in q or ("preço" in q and "alto" in q):
+        sub = df[df['Country'] == country] if country else df
+        if 'UnitPrice' in sub.columns and not sub.empty:
+            row = sub.loc[sub['UnitPrice'].idxmax()]
+            return f"💰 Produto mais caro: {row['Description']} (Código: {row['StockCode']}), preço unitário: {row['UnitPrice']:.2f}, país: {row['Country']}"
+
+    # top clientes
+    if any(x in q for x in ["clientes que mais gastaram","top clientes","clientes mais"]) :
+        sub = df[df['Country'] == country] if country else df
+        if {'CustomerID','TotalPrice'}.issubset(sub.columns):
+            topc = sub.groupby('CustomerID')['TotalPrice'].sum().sort_values(ascending=False).head(5)
+            return "🔝 Top clientes:\n" + topc.to_string()
+
+    # fallback: not a local insight
+    return None
 
 # === Tab: Chat ===
 with tab_chat:
-    st.header("💬 Conversar (RAG)")
+    st.header("💬 Conversar (LLM + RAG + Local Insights)")
 
+    # Exibir histórico
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            st.markdown(msg["content"]) 
 
     user_prompt = st.chat_input("Digite sua pergunta")
+
     if user_prompt:
         st.session_state.chat_history.append({"role": "user", "content": user_prompt})
 
+        # carregar tabela spec (RAG context)
         try:
             df_context = load_data("spec_sales")
         except Exception:
             df_context = None
 
         if df_context is None or df_context.empty:
-            reply = "Tabela 'spec_sales' não encontrada. Execute o pipeline ou forneça os dados."
-        else:
-            insight_reply = get_insight(user_prompt, df_context)
-            if insight_reply:
-                reply = insight_reply
-            else:
-                context_text = build_context_from_df(df_context, max_chars=max_ctx)
-                msgs = [{"role": "system", "content": sys_prompt},
-                        {"role": "user", "content": f"Contexto da base:\n{context_text}"}]
-                for m in st.session_state.chat_history[-12:]:
-                    msgs.append({"role": m["role"], "content": m["content"]})
-                if st.session_state.importances is not None:
-                    msgs.append({"role": "user", "content": f"Top importances:\n{st.session_state.importances.head(10).to_string(index=False)}"})
-                if st.session_state.metrics is not None:
-                    msgs.append({"role": "user", "content": f"Métricas do modelo:\n{st.session_state.metrics}"})
-                try:
-                    client = get_client()
-                    resp = client.chat.completions.create(
-                        model=model_api,
-                        messages=msgs,
-                        temperature=0.2,
-                    )
-                    reply = resp.choices[0].message.content
-                except Exception as e:
-                    reply = f"Erro na API: {e}"
+            reply = "A tabela `spec_sales` ainda não existe ou está vazia. Execute o pipeline de treino para gerar o contexto (treinar com o CSV)."
+            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+            with st.chat_message("assistant"):
+                st.markdown(reply)
+            st.rerun()
+
+        # 1) tenta responder localmente (fast path)
+        local = get_local_insight(user_prompt, df_context)
+        if local:
+            reply = local
+            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+            with st.chat_message("assistant"):
+                st.markdown(reply)
+            st.rerun()
+
+        # 2) construir contexto RAG e decidir quais extras enviar
+        context_text = build_context_from_df(df_context, max_chars=max_ctx)
+        if show_ctx:
+            with st.expander("Ver contexto gerado"):
+                st.text(context_text)
+
+        msgs = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": f"Contexto do e-commerce:\n{context_text}"},
+            {"role": "user", "content": f"Pergunta do usuário: {user_prompt}"}
+        ]
+
+        # Somente anexar métricas/importances se a pergunta pedir explicitamente
+        qlow = user_prompt.lower()
+        if st.session_state.metrics is not None and any(k in qlow for k in ["métric","rmse","mae","r2","modelo","treino"]):
+            msgs.append({"role": "user", "content": f"Métricas do modelo:\n{st.session_state.metrics}"})
+        if st.session_state.importances is not None and any(k in qlow for k in ["feature","importan","variáve","variavel","coeficient"]):
+            msgs.append({"role": "user", "content": f"Importances:\n{st.session_state.importances.head(10).to_string(index=False)}"})
+
+        # incluir histórico curto (últimas 6 mensagens) para contexto de conversação
+        for m in st.session_state.chat_history[-6:]:
+            msgs.append({"role": m["role"], "content": m["content"]})
+
+        # chamada ao modelo
+        try:
+            client = get_client()
+            resp = client.chat.completions.create(
+                model=model_api,
+                messages=msgs,
+                temperature=0.2,
+            )
+            reply = resp.choices[0].message.content
+        except Exception as e:
+            reply = f"Erro na API: {e}"
 
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
         with st.chat_message("assistant"):
             st.markdown(reply)
-        st.session_state.api_messages = msgs if 'msgs' in locals() else []
+        st.session_state.api_messages = msgs
         st.rerun()
