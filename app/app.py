@@ -7,6 +7,7 @@ from textwrap import dedent
 import pandas as pd
 import streamlit as st
 from openai import OpenAI
+from pathlib import Path
 
 # carregar .env
 load_dotenv()
@@ -17,13 +18,17 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 # imports do projeto
 from core.pipeline import run_training_pipeline, run_prediction_pipeline, load_data
 from core.chatbot.insights import gerar_insights
+from core.chatbot.resumo_estatico import gerar_resumo  # <- import do resumo estático
+from core.config import logger, MODELS_DIR, DEFAULT_MODEL, AVAILABLE_MODELS, OPENAI_API_KEY
+from core.chatbot import context_loader
 
 # === Helpers OpenAI ===
 def get_api_key():
-    key = os.getenv("OPENAI_API_KEY")
+    # Prioridade: env var -> .streamlit secrets -> config.OPENAI_API_KEY
+    key = os.getenv("OPENAI_API_KEY") or OPENAI_API_KEY
     if not key:
         try:
-            key = st.secrets["openai_api_key"]
+            key = st.secrets.get("openai_api_key")
         except Exception:
             key = None
     return key
@@ -32,16 +37,22 @@ def get_api_key():
 def get_client():
     k = get_api_key()
     if not k:
+        logger.error("OPENAI_API_KEY não definida - funcionalidades de chat limitadas")
         st.error("❌ OPENAI_API_KEY não definida. Configure no .env ou em .streamlit/secrets.toml")
         st.stop()
     os.environ["OPENAI_API_KEY"] = k
-    return OpenAI()
+    # Retornar cliente OpenAI
+    try:
+        return OpenAI()
+    except Exception as e:
+        logger.exception("Falha ao criar cliente OpenAI")
+        st.error(f"Erro ao inicializar cliente OpenAI: {e}")
+        st.stop()
 
 
 # === Paths e constantes ===
-MODEL_DIR = "models_store"
-os.makedirs(MODEL_DIR, exist_ok=True)
-MODEL_PATH = os.path.join(MODEL_DIR, "model_sales.pkl")
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_PATH = os.path.join(MODELS_DIR, "model_sales.pkl")
 
 # === Streamlit config ===
 st.set_page_config(page_title="📊 E-commerce ML - Chat", layout="wide")
@@ -76,7 +87,7 @@ with st.sidebar:
     test_size = st.slider("Tamanho do conjunto de teste", 0.1, 0.4, 0.2, 0.05)
     max_ctx = st.slider("Limite do contexto (caracteres)", 500, 12000, 4000, step=500)
     show_ctx = st.checkbox("Mostrar contexto gerado", value=False)
-    model_api = st.selectbox("Modelo (API)", ["gpt-4o-mini","gpt-4o","gpt-4.1-mini"], index=0)
+    model_api = st.selectbox("Modelo (API)", AVAILABLE_MODELS, index=(AVAILABLE_MODELS.index(DEFAULT_MODEL) if DEFAULT_MODEL in AVAILABLE_MODELS else 0))
     sys_prompt = st.text_area(
         "System prompt (comportamento do assistente)",
         value=("Você é um analista de dados especializado em e-commerce. "
@@ -133,7 +144,7 @@ if predict_btn:
         st.success("✅ Predições realizadas!")
 
 # === Tabs ===
-tab_train, tab_predict, tab_chat = st.tabs(["📊 Resultados do Treino", "🚀 Predições", "💬 Chat"])
+tab_train, tab_predict, tab_chat, tab_resumo = st.tabs(["📊 Resultados do Treino", "🚀 Predições", "💬 Chat", "📄 Resumo Estático"])
 
 # === Tab: Treino ===
 with tab_train:
@@ -168,7 +179,6 @@ def numeric_summary(df: pd.DataFrame) -> str:
     desc["median"] = df[num_cols].median()
     return desc[["count","mean","median","std","min","max"]].head(20).to_string()
 
-
 def categorical_summary(df: pd.DataFrame, top_k: int = 5) -> str:
     cat_cols = df.select_dtypes(include=["object","category","bool"]).columns
     if len(cat_cols) == 0: return "(Sem colunas categóricas)"
@@ -177,7 +187,6 @@ def categorical_summary(df: pd.DataFrame, top_k: int = 5) -> str:
         vc = df[c].value_counts(dropna=False).head(top_k)
         lines.append(f"Coluna: {c}\n{vc.to_string()}\n")
     return "\n".join(lines)
-
 
 def build_context_from_df(df: pd.DataFrame, max_chars: int = 4000, include_sample: bool = True) -> str:
     parts = [f"Shape: {df.shape[0]} linhas x {df.shape[1]} colunas",
@@ -193,30 +202,15 @@ def build_context_from_df(df: pd.DataFrame, max_chars: int = 4000, include_sampl
 
 # === Função de geração de resposta local (insights on-demand) ===
 def get_local_insight(user_prompt: str, df: pd.DataFrame) -> str:
-    """
-    Tenta responder localmente (sem chamar API) para consultas comuns:
-    - top produtos (por país opcional)
-    - produto mais caro (por país opcional)
-    - top clientes
-    - gerar insights gerais via core.chatbot.insights.gerar_insights
-    Retorna None se não identificar intenção específica.
-    """
     q = (user_prompt or "").lower()
-
-    # casual greetings
     if any(k in q for k in ["oi","olá","ola","tudo bem","bom dia","boa tarde","boa noite"]):
         return "Oi! 😊 Posso ajudar com análises da base (top produtos, vendas por país, clientes) ou com perguntas técnicas sobre o modelo."
-
-    # detectar país (palavras simples em pt ou en)
     country = None
     for cand in df['Country'].unique():
         if cand.lower() in q:
             country = cand
             break
-
-    # top produtos
     if "top" in q and ("produto" in q or "produtos" in q):
-        # extrair número (top N)
         import re
         n = 5
         m = re.search(r"top\s*(\d+)", q)
@@ -229,52 +223,37 @@ def get_local_insight(user_prompt: str, df: pd.DataFrame) -> str:
         lines = [f"{i+1}. {desc} (Código: {code}) - {qty} unidades" for i, ((code, desc), qty) in enumerate(top.items())]
         insight_text = gerar_insights(sub if country else df, top_n_products=n, country=country)
         return "🏆 Top produtos:\n" + "\n".join(lines) + "\n\n" + insight_text
-
-    # produto mais caro
     if "mais caro" in q or ("preço" in q and "alto" in q):
         sub = df[df['Country'] == country] if country else df
         if 'UnitPrice' in sub.columns and not sub.empty:
             row = sub.loc[sub['UnitPrice'].idxmax()]
             return f"💰 Produto mais caro: {row['Description']} (Código: {row['StockCode']}), preço unitário: {row['UnitPrice']:.2f}, país: {row['Country']}"
-
-    # top clientes
     if any(x in q for x in ["clientes que mais gastaram","top clientes","clientes mais"]) :
         sub = df[df['Country'] == country] if country else df
         if {'CustomerID','TotalPrice'}.issubset(sub.columns):
             topc = sub.groupby('CustomerID')['TotalPrice'].sum().sort_values(ascending=False).head(5)
             return "🔝 Top clientes:\n" + topc.to_string()
-
-    # fallback: not a local insight
     return None
 
 # === Tab: Chat ===
 with tab_chat:
-    st.header("💬 Conversar (LLM + RAG + Local Insights)")
-
-    # Exibir histórico
+    st.header("💬 Conversar ")
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"]) 
-
     user_prompt = st.chat_input("Digite sua pergunta")
-
     if user_prompt:
         st.session_state.chat_history.append({"role": "user", "content": user_prompt})
-
-        # carregar tabela spec (RAG context)
         try:
             df_context = load_data("spec_sales")
         except Exception:
             df_context = None
-
         if df_context is None or df_context.empty:
-            reply = "A tabela `spec_sales` ainda não existe ou está vazia. Execute o pipeline de treino para gerar o contexto (treinar com o CSV)."
+            reply = "A tabela `spec_sales` ainda não existe ou está vazia. Execute o pipeline de treino para gerar o contexto."
             st.session_state.chat_history.append({"role": "assistant", "content": reply})
             with st.chat_message("assistant"):
                 st.markdown(reply)
             st.rerun()
-
-        # 1) tenta responder localmente (fast path)
         local = get_local_insight(user_prompt, df_context)
         if local:
             reply = local
@@ -282,31 +261,33 @@ with tab_chat:
             with st.chat_message("assistant"):
                 st.markdown(reply)
             st.rerun()
-
-        # 2) construir contexto RAG e decidir quais extras enviar
         context_text = build_context_from_df(df_context, max_chars=max_ctx)
+        # tentar carregar contexto textual gerado (generate_context)
+        try:
+            textual_ctx = context_loader.load_context()
+            # prefira o contexto gerado, mas limite o tamanho
+            textual_ctx = textual_ctx[:max_ctx]
+        except Exception:
+            textual_ctx = None
         if show_ctx:
             with st.expander("Ver contexto gerado"):
                 st.text(context_text)
-
         msgs = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": f"Contexto do e-commerce:\n{context_text}"},
-            {"role": "user", "content": f"Pergunta do usuário: {user_prompt}"}
+            {"role": "user", "content": f"Contexto do e-commerce (tabela agregada):\n{context_text}"},
         ]
+        if textual_ctx:
+            msgs.append({"role": "user", "content": f"Contexto textual gerado (resumo):\n{textual_ctx}"})
 
-        # Somente anexar métricas/importances se a pergunta pedir explicitamente
+        # Pergunta do usuário (sempre adicionada por último)
+        msgs.append({"role": "user", "content": f"Pergunta do usuário: {user_prompt}"})
         qlow = user_prompt.lower()
         if st.session_state.metrics is not None and any(k in qlow for k in ["métric","rmse","mae","r2","modelo","treino"]):
             msgs.append({"role": "user", "content": f"Métricas do modelo:\n{st.session_state.metrics}"})
         if st.session_state.importances is not None and any(k in qlow for k in ["feature","importan","variáve","variavel","coeficient"]):
             msgs.append({"role": "user", "content": f"Importances:\n{st.session_state.importances.head(10).to_string(index=False)}"})
-
-        # incluir histórico curto (últimas 6 mensagens) para contexto de conversação
         for m in st.session_state.chat_history[-6:]:
             msgs.append({"role": m["role"], "content": m["content"]})
-
-        # chamada ao modelo
         try:
             client = get_client()
             resp = client.chat.completions.create(
@@ -317,9 +298,36 @@ with tab_chat:
             reply = resp.choices[0].message.content
         except Exception as e:
             reply = f"Erro na API: {e}"
-
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
         with st.chat_message("assistant"):
             st.markdown(reply)
         st.session_state.api_messages = msgs
         st.rerun()
+
+# === Tab: Resumo Estático ===
+with tab_resumo:
+    st.header("📄 Resumo Estático da Base")
+    try:
+        df_context = load_data("spec_sales")
+    except Exception:
+        df_context = df if df is not None else None
+    if df_context is None or df_context.empty:
+        st.info("A tabela de contexto ainda não existe ou está vazia. Faça upload do CSV ou treine o modelo para gerar a base.")
+    else:
+        st.subheader("📊 Resumo Numérico")
+        st.dataframe(df_context.describe().round(2))
+        st.subheader("📝 Resumo Interpretativo")
+        paths = gerar_resumo(df=df_context, output_dir="data")
+        interpretativo_path = paths["interpretativo"]
+        if interpretativo_path.exists():
+            interpretativo = pd.read_csv(interpretativo_path)
+            st.dataframe(interpretativo)
+        else:
+            st.info("Resumo interpretativo ainda não gerado.")
+        st.subheader("💡 Insights Executivos")
+        insights_path = paths["insights"]
+        if insights_path.exists():
+            insights_exec = pd.read_csv(insights_path)
+            st.dataframe(insights_exec)
+        else:
+            st.info("Insights executivos ainda não gerados.")

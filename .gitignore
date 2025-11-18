@@ -42,5 +42,4 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 # Ambiente virtual
-.venv/
 .env

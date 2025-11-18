@@ -14,6 +14,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestRegressor
 from core.data.generate_context import generate_context
+from core.config import logger
 
 REQUIRED_COLUMNS = [
     "InvoiceNo", "StockCode", "Description", "Quantity",
@@ -168,10 +169,10 @@ def run_prediction_pipeline(df_test: pd.DataFrame, model_path: str):
     return df_pred
 
 def run_pipeline():
-    print("Executando pipeline de dados...")
+    logger.info("Executando pipeline de dados...")
 
     # sua lógica já existente de ETL, load, model etc.
 
-    print("Gerando resumo estatístico para RAG...")
+    logger.info("Gerando resumo estatístico para RAG...")
     ctx_path = generate_context(summary_type="describe")
-    print(f"Contexto atualizado em: {ctx_path}")
+    logger.info(f"Contexto atualizado em: {ctx_path}")

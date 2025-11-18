@@ -1,10 +1,25 @@
 import pandas as pd
-import os
+from pathlib import Path
+from typing import Union
 
-def generate_context(summary_type="full"):
-    base_path = os.path.dirname(__file__)
-    csv_path = os.path.join(base_path, "eCommerce.csv")
-    context_path = os.path.join(base_path, "context.txt")
+from core.config import DATA_DIR, CONTEXT_CACHE_DIR, logger
+
+
+def generate_context(summary_type: str = "full") -> Union[str, Path]:
+    """Gera um resumo textual da base `eCommerce.csv` para uso como contexto RAG.
+
+    Args:
+        summary_type: 'full', 'describe' ou 'sample' para controlar o que é gerado.
+
+    Returns:
+        Caminho para o arquivo de contexto gerado.
+    """
+    csv_path = Path(DATA_DIR) / "eCommerce.csv"
+    context_path = Path(CONTEXT_CACHE_DIR) / f"context_{summary_type}.txt"
+
+    if not csv_path.exists():
+        logger.error(f"Arquivo CSV não encontrado: {csv_path}")
+        raise FileNotFoundError(f"Arquivo CSV não encontrado: {csv_path}")
 
     df = pd.read_csv(csv_path)
 
@@ -64,8 +79,9 @@ def generate_context(summary_type="full"):
 
     # Salvando o contexto
     final_context = "\n".join(text_blocks)
-
+    CONTEXT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with open(context_path, "w", encoding="utf-8") as f:
         f.write(final_context)
 
+    logger.info(f"Contexto gerado: {context_path}")
     return context_path
